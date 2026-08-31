@@ -1,0 +1,1 @@
+"""Xingyun lottery application."""

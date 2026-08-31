@@ -1,0 +1,16 @@
+services:
+  lottery:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ENV: production
+      DATABASE_PATH: /data/lottery.db
+      COOKIE_SECURE: "true"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - lottery-data:/data
+
+volumes:
+  lottery-data:

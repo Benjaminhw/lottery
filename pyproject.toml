@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xingyun-lottery"
+version = "0.1.0"
+description = "QR registration and live event lottery application"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.116,<1",
+    "httpx>=0.28,<1",
+    "itsdangerous>=2.2,<3",
+    "python-dotenv>=1.1,<2",
+    "qrcode[pil]>=8.2,<9",
+    "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.4,<9"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.setuptools.package-data]
+app = ["static/*"]
+
+[tool.setuptools.packages.find]
+include = ["app"]
+namespaces = false

@@ -1,0 +1,20 @@
+[Unit]
+Description=XiLi wedding lottery
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Learning/lottery
+EnvironmentFile=%h/Learning/lottery/.env
+ExecStart=%h/Learning/lottery/.venv313/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+LimitNOFILE=4096
+
+[Install]
+WantedBy=default.target

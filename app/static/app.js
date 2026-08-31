@@ -2,6 +2,11 @@
 
 const appRoot = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
+const basePath = document.querySelector('meta[name="app-base-path"]')?.content || "";
+
+function appUrl(path) {
+  return `${basePath}${path}`;
+}
 
 const state = {
   adminEvents: [],
@@ -29,7 +34,7 @@ async function api(path, options = {}) {
     };
     requestOptions.body = JSON.stringify(requestOptions.body);
   }
-  const response = await fetch(path, requestOptions);
+  const response = await fetch(appUrl(path), requestOptions);
   const contentType = response.headers.get("content-type") || "";
   const payload = contentType.includes("application/json") ? await response.json() : null;
   if (!response.ok) {
@@ -110,7 +115,7 @@ function bindAvatarFallbacks(root = document) {
 
 function openEventStream(slug, onSnapshot) {
   closeEventSource();
-  const source = new EventSource(`/api/events/${encodeURIComponent(slug)}/stream`);
+  const source = new EventSource(appUrl(`/api/events/${encodeURIComponent(slug)}/stream`));
   source.addEventListener("snapshot", (message) => {
     try {
       onSnapshot(JSON.parse(message.data));
@@ -141,7 +146,7 @@ function defaultSlug() {
   const parts = [now.getFullYear(), now.getMonth() + 1, now.getDate()]
     .map((part) => String(part).padStart(2, "0"))
     .join("");
-  return `event-${parts}`;
+  return `wedding-${parts}`;
 }
 
 function closeEventSource() {
@@ -150,28 +155,28 @@ function closeEventSource() {
 }
 
 function adminLink(slug) {
-  return `/admin?event=${encodeURIComponent(slug)}`;
+  return appUrl(`/admin?event=${encodeURIComponent(slug)}`);
 }
 
 function renderAdminLogin() {
-  document.title = "管理登录 · 幸运现场";
+  document.title = "管理登录 · 喜礼现场";
   appRoot.innerHTML = `
     <main class="login-page">
       <section class="login-copy">
         <div class="login-brand">
-          <div class="brand-mark" aria-hidden="true">幸</div>
-          <strong>幸运现场</strong>
+          <div class="brand-mark" aria-hidden="true">囍</div>
+          <strong>喜礼现场</strong>
         </div>
         <div class="login-copy-main">
-          <p class="eyebrow">LIVE LOTTERY</p>
-          <h1>让悬念<br>留到最后一秒</h1>
-          <p>扫码入场，多轮开奖。每一个结果都由服务端产生并留存。</p>
+          <p class="eyebrow">WEDDING LOTTERY</p>
+          <h1>把这一刻的欢喜<br>送给在场的你</h1>
+          <p>宾客扫码签到，多轮喜礼抽取。每一份惊喜都由服务端随机产生并留存。</p>
         </div>
-        <span class="login-meta">CONTROL DESK / ADMIN ONLY</span>
+        <span class="login-meta">WEDDING DESK / ADMIN ONLY</span>
       </section>
       <section class="login-form-wrap">
         <form id="login-form" class="login-form">
-          <p class="eyebrow">CONTROL DESK</p>
+          <p class="eyebrow">WEDDING DESK</p>
           <h2>进入管理台</h2>
           <p>使用服务器环境变量中设置的管理密码。</p>
           <label class="field">
@@ -217,19 +222,19 @@ function adminShell(content, activeSlug = "") {
   return `
     <div class="admin-shell">
       <aside class="admin-sidebar">
-        <a class="admin-brand" href="/admin">
-          <div class="brand-mark" aria-hidden="true">幸</div>
-          <div><strong>幸运现场</strong><span>CONTROL DESK</span></div>
+        <a class="admin-brand" href="${appUrl("/admin")}">
+          <div class="brand-mark" aria-hidden="true">囍</div>
+          <div><strong>喜礼现场</strong><span>WEDDING DESK</span></div>
         </a>
         <div class="sidebar-section">
-          <p class="sidebar-label">活动</p>
+          <p class="sidebar-label">婚礼场次</p>
           <nav class="sidebar-events">
-            <a class="sidebar-link${!activeSlug ? " is-active" : ""}" href="/admin">
-              ${icon("layout-dashboard")}<span>活动总览</span>
+            <a class="sidebar-link${!activeSlug ? " is-active" : ""}" href="${appUrl("/admin")}">
+              ${icon("layout-dashboard")}<span>婚礼总览</span>
             </a>
             ${eventLinks}
-            <a class="sidebar-link" href="/admin?new=1">
-              ${icon("plus")}<span>新建活动</span>
+            <a class="sidebar-link" href="${appUrl("/admin?new=1")}">
+              ${icon("plus")}<span>新建婚礼</span>
             </a>
           </nav>
         </div>
@@ -248,22 +253,22 @@ function bindAdminShell() {
   document.querySelector("#logout-button")?.addEventListener("click", async () => {
     await api("/api/admin/logout", { method: "POST" });
     state.adminEvents = [];
-    history.replaceState({}, "", "/admin");
+    history.replaceState({}, "", appUrl("/admin"));
     renderAdminLogin();
   });
 }
 
 function renderAdminOverview() {
-  document.title = "活动总览 · 幸运现场";
+  document.title = "婚礼总览 · 喜礼现场";
   const content = `
     <header class="page-heading">
       <div>
-        <p class="eyebrow">EVENTS</p>
-        <h1>活动总览</h1>
-        <p>${state.adminEvents.length ? `共 ${state.adminEvents.length} 场活动` : "从第一场活动开始"}</p>
+        <p class="eyebrow">WEDDINGS</p>
+        <h1>婚礼总览</h1>
+        <p>${state.adminEvents.length ? `共 ${state.adminEvents.length} 场婚礼` : "从第一场婚礼开始"}</p>
       </div>
-      <a class="button button-primary" href="/admin?new=1">
-        ${icon("plus")}<span>新建活动</span>
+      <a class="button button-primary" href="${appUrl("/admin?new=1")}">
+        ${icon("plus")}<span>新建婚礼</span>
       </a>
     </header>
     ${
@@ -278,11 +283,11 @@ function renderAdminOverview() {
                       <div class="event-code">${escapeHtml(event.slug)}</div>
                     </div>
                     <span class="status-pill${event.registration_open ? "" : " is-closed"}">
-                      ${event.registration_open ? "报名中" : "已关闭"}
+                      ${event.registration_open ? "签到中" : "已关闭"}
                     </span>
                   </div>
                   <div class="event-card-stats">
-                    <div><span class="stat-value">${event.participant_count}</span><span class="stat-label">参与者</span></div>
+                    <div><span class="stat-value">${event.participant_count}</span><span class="stat-label">已签到宾客</span></div>
                     <div><span class="stat-value">${event.drawn_rounds}/${event.round_count}</span><span class="stat-label">已开奖轮次</span></div>
                   </div>
                 </a>`,
@@ -290,9 +295,9 @@ function renderAdminOverview() {
             .join("")}</section>`
         : `<section class="empty-state">
             ${icon("scan-line")}
-            <h2>还没有活动</h2>
-            <p>创建活动后即可生成报名二维码。</p>
-            <a class="button button-primary" href="/admin?new=1">${icon("plus")}<span>新建活动</span></a>
+          <h2>还没有婚礼场次</h2>
+          <p>创建婚礼后即可生成宾客签到二维码。</p>
+            <a class="button button-primary" href="${appUrl("/admin?new=1")}">${icon("plus")}<span>新建婚礼</span></a>
           </section>`
     }`;
   appRoot.innerHTML = adminShell(content);
@@ -331,41 +336,42 @@ function renumberRounds(container) {
 }
 
 function renderCreateEvent() {
-  document.title = "新建活动 · 幸运现场";
+  document.title = "新建婚礼 · 喜礼现场";
   const content = `
     <header class="page-heading">
       <div>
-        <p class="eyebrow">NEW EVENT</p>
-        <h1>新建活动</h1>
-        <p>保存后立即生成报名二维码。</p>
+        <p class="eyebrow">NEW WEDDING</p>
+        <h1>新建婚礼</h1>
+        <p>保存后立即生成宾客签到二维码。</p>
       </div>
     </header>
     <form id="event-form" class="form-panel">
       <div class="form-grid">
         <label class="field">
-          <span>活动名称</span>
-          <input name="title" required maxlength="80" placeholder="例如：2026 年度盛典" autofocus>
+          <span>婚礼名称</span>
+          <input name="title" required maxlength="80" placeholder="例如：子衿 & 清和的婚礼" autofocus>
         </label>
         <label class="field">
-          <span>活动代码</span>
+          <span>婚礼代码</span>
           <input name="slug" required minlength="2" maxlength="40" pattern="[a-z0-9][a-z0-9\\-]{1,39}" value="${defaultSlug()}">
         </label>
       </div>
       <div class="form-divider"></div>
       <div class="form-section-head">
-        <span class="form-section-label">抽奖轮次</span>
+        <span class="form-section-label">喜礼轮次</span>
         <button id="add-round" class="button button-small button-ghost" type="button">
           ${icon("plus")}<span>添加一轮</span>
         </button>
       </div>
       <div id="round-editor" class="round-editor">
-        ${roundRow(0, { name: "幸运奖", winner_count: 5 })}
-        ${roundRow(1, { name: "一等奖", winner_count: 1 })}
+        ${roundRow(0, { name: "欢喜伴手礼", prize: "定制喜礼", winner_count: 5 })}
+        ${roundRow(1, { name: "甜蜜幸运奖", prize: "品质家电", winner_count: 2 })}
+        ${roundRow(2, { name: "幸福锦鲤", prize: "惊喜红包", winner_count: 1 })}
       </div>
       <div class="form-actions">
-        <a class="button button-ghost" href="/admin">取消</a>
+        <a class="button button-ghost" href="${appUrl("/admin")}">取消</a>
         <button class="button button-primary" type="submit">
-          ${icon("check")}<span>创建活动</span>
+          ${icon("check")}<span>创建婚礼</span>
         </button>
       </div>
     </form>`;
@@ -410,7 +416,7 @@ function renderCreateEvent() {
           rounds,
         },
       });
-      showToast("活动已创建");
+      showToast("婚礼已创建");
       history.pushState({}, "", adminLink(created.slug));
       await bootAdmin();
     } catch (error) {
@@ -442,7 +448,7 @@ function renderAdminEvent(slug) {
   appRoot.innerHTML = adminShell(`
     <section class="empty-state">
       ${icon("loader-circle")}
-      <h2>正在读取活动</h2>
+      <h2>正在读取婚礼</h2>
     </section>`, slug);
   bindAdminShell();
   refreshIcons();
@@ -471,7 +477,7 @@ async function loadAdminEvent(slug) {
   } catch (error) {
     if (error.status === 401) return renderAdminLogin();
     showToast(error.message, "error");
-    history.replaceState({}, "", "/admin");
+    history.replaceState({}, "", appUrl("/admin"));
     renderAdminOverview();
   }
 }
@@ -522,7 +528,7 @@ function renderAdminEventDetail() {
           ${avatarMarkup(participant)}
           <div class="participant-name">
             <strong>${escapeHtml(participant.name)}</strong>
-            <span>${participant.source === "wechat" ? "微信报名" : dateLabel(participant.created_at)}</span>
+            <span>${participant.source === "wechat" ? "微信签到" : dateLabel(participant.created_at)}</span>
           </div>
           ${
             hasResults && event.rounds.some((round) => round.winners.some((winner) => winner.id === participant.id))
@@ -532,25 +538,25 @@ function renderAdminEventDetail() {
         </div>`,
     )
     .join("");
-  document.title = `${event.title} · 幸运现场`;
+  document.title = `${event.title} · 喜礼现场`;
   const content = `
     <header class="page-heading">
       <div>
         <p class="eyebrow">${escapeHtml(event.slug)}</p>
         <h1>${escapeHtml(event.title)}</h1>
-        <p><span data-participant-count>${event.participant_count}</span> 人已报名 · ${event.rounds.length} 轮抽奖</p>
+        <p><span data-participant-count>${event.participant_count}</span> 位宾客已签到 · ${event.rounds.length} 轮喜礼</p>
       </div>
-      <a class="button button-primary" href="/draw/${encodeURIComponent(event.slug)}">
-        ${icon("presentation")}<span>进入抽奖大屏</span>
+      <a class="button button-primary" href="${appUrl(`/draw/${encodeURIComponent(event.slug)}`)}">
+        ${icon("presentation")}<span>进入喜礼大屏</span>
       </a>
     </header>
     <section class="control-strip">
-      <div class="control-stat"><span>参与者</span><strong data-participant-count>${event.participant_count}</strong></div>
-      <div class="control-stat"><span>抽奖进度</span><strong>${drawnCount}/${event.rounds.length}</strong></div>
-      <div class="control-stat"><span>已产生名额</span><strong>${winnerCount}</strong></div>
+      <div class="control-stat"><span>已签到宾客</span><strong data-participant-count>${event.participant_count}</strong></div>
+      <div class="control-stat"><span>喜礼进度</span><strong>${drawnCount}/${event.rounds.length}</strong></div>
+      <div class="control-stat"><span>已送出喜礼</span><strong>${winnerCount}</strong></div>
       <div class="registration-control">
-        <div><strong>扫码报名</strong><small>${event.registration_open ? "入口当前开放" : "入口当前关闭"}</small></div>
-        <label class="toggle-control" title="切换报名状态">
+        <div><strong>扫码签到</strong><small>${event.registration_open ? "入口当前开放" : "入口当前关闭"}</small></div>
+        <label class="toggle-control" title="切换签到状态">
           <input id="registration-toggle" type="checkbox" role="switch" ${event.registration_open ? "checked" : ""}>
           <span class="toggle-track"></span>
         </label>
@@ -560,7 +566,7 @@ function renderAdminEventDetail() {
       <div class="admin-primary">
         <section class="panel-section">
           <header class="section-head">
-            <div><h2>抽奖轮次</h2><p>${hasResults ? "已有开奖结果，重置后可重新编辑" : "依次执行，中奖者不会跨轮次重复"}</p></div>
+            <div><h2>喜礼轮次</h2><p>${hasResults ? "已有开奖结果，重置后可重新编辑" : "依次抽取，同一位宾客不会重复中奖"}</p></div>
             <div class="section-actions">
               ${hasResults ? `<button id="reset-draws" class="button button-small button-ghost" type="button">${icon("rotate-ccw")}<span>重置结果</span></button>` : ""}
               ${!hasResults ? `<button id="add-admin-round" class="button button-small button-ghost" type="button">${icon("plus")}<span>添加</span></button><button id="save-rounds" class="button button-small button-jade" type="button">${icon("save")}<span>保存轮次</span></button>` : ""}
@@ -571,23 +577,23 @@ function renderAdminEventDetail() {
         ${hasResults ? `<section class="panel-section"><header class="section-head"><div><h2>开奖结果</h2><p>结果已由服务端固化</p></div></header><div class="winner-ledger">${winnerLedger}</div></section>` : ""}
         <section class="panel-section">
           <header class="section-head">
-            <div><h2>报名名单</h2><p>共 <span data-participant-count>${event.participant_count}</span> 人</p></div>
+            <div><h2>签到宾客</h2><p>共 <span data-participant-count>${event.participant_count}</span> 人</p></div>
             <div class="participant-tools">
               <label class="search-box">
-                ${icon("search")}<input id="participant-search" type="search" placeholder="查找姓名" aria-label="查找报名者">
+                ${icon("search")}<input id="participant-search" type="search" placeholder="查找宾客" aria-label="查找宾客">
               </label>
             </div>
           </header>
           <div id="participant-list" class="participant-list">
-            ${participants || `<div class="list-empty">二维码被扫描后，名单会实时出现在这里。</div>`}
+            ${participants || `<div class="list-empty">宾客扫码签到后，名单会实时出现在这里。</div>`}
           </div>
         </section>
       </div>
       <aside class="qr-panel">
-        <p class="eyebrow">SCAN TO JOIN</p>
-        <h2>扫码报名</h2>
-        <p>${event.registration_open ? "报名入口已开放" : "报名入口已关闭"}</p>
-        <div class="qr-frame"><img src="${escapeHtml(event.qr_url)}" alt="${escapeHtml(event.title)}报名二维码"></div>
+        <p class="eyebrow">GUEST CHECK-IN</p>
+        <h2>扫码签到</h2>
+        <p>${event.registration_open ? "签到入口已开放" : "签到入口已关闭"}</p>
+        <div class="qr-frame"><img src="${escapeHtml(event.qr_url)}" alt="${escapeHtml(event.title)}签到二维码"></div>
         <span class="join-url" title="${escapeHtml(event.join_url)}">${escapeHtml(event.join_url)}</span>
         <div class="qr-actions">
           <button id="copy-join-url" class="button button-small" type="button">${icon("copy")}<span>复制链接</span></button>
@@ -609,7 +615,7 @@ function renderAdminEventDetail() {
         body: { open: toggle.checked },
       });
       state.currentEvent.registration_open = toggle.checked;
-      showToast(toggle.checked ? "报名入口已开放" : "报名入口已关闭");
+      showToast(toggle.checked ? "签到入口已开放" : "签到入口已关闭");
       renderAdminEventDetail();
     } catch (error) {
       toggle.checked = !toggle.checked;
@@ -621,7 +627,7 @@ function renderAdminEventDetail() {
   document.querySelector("#copy-join-url").addEventListener("click", async () => {
     try {
       await copyText(event.join_url);
-      showToast("报名链接已复制");
+      showToast("签到链接已复制");
     } catch {
       showToast("复制失败，请手动选择链接", "error");
     }
@@ -676,7 +682,7 @@ function renderAdminEventDetail() {
   }
 
   document.querySelector("#reset-draws")?.addEventListener("click", async (clickEvent) => {
-    if (!window.confirm("确定清空全部开奖结果吗？报名名单会保留。")) return;
+    if (!window.confirm("确定清空全部开奖结果吗？宾客签到名单会保留。")) return;
     setButtonBusy(clickEvent.currentTarget, true, "正在重置");
     try {
       await api(`/api/admin/events/${encodeURIComponent(event.slug)}/reset-draws`, { method: "POST" });
@@ -709,7 +715,7 @@ function renderAdminEventDetail() {
     if (!button) return;
     const item = button.closest("[data-participant]");
     const name = item.querySelector(".participant-name strong").textContent;
-    if (!window.confirm(`确定将“${name}”移出报名名单吗？`)) return;
+    if (!window.confirm(`确定将“${name}”移出签到名单吗？`)) return;
     button.disabled = true;
     try {
       await api(`/api/admin/events/${encodeURIComponent(event.slug)}/participants/${button.dataset.removeParticipant}`, {
@@ -719,7 +725,7 @@ function renderAdminEventDetail() {
         (participant) => String(participant.id) !== button.dataset.removeParticipant,
       );
       state.currentEvent.participant_count -= 1;
-      showToast("已移出报名名单");
+      showToast("已移出签到名单");
       renderAdminEventDetail();
     } catch (error) {
       button.disabled = false;
@@ -729,7 +735,9 @@ function renderAdminEventDetail() {
 }
 
 function route() {
-  const path = location.pathname;
+  const path = basePath && location.pathname.startsWith(basePath)
+    ? location.pathname.slice(basePath.length) || "/"
+    : location.pathname;
   if (path === "/" || path === "/admin") return bootAdmin();
   const joinMatch = path.match(/^\/e\/([^/]+)$/);
   if (joinMatch) return bootJoin(decodeURIComponent(joinMatch[1]));
@@ -741,7 +749,7 @@ function route() {
 function arrivalGridMarkup(participants) {
   const visibleParticipants = participants.slice(-25).reverse();
   if (!visibleParticipants.length) {
-    return '<div class="arrival-empty">等待第一位参与者</div>';
+    return '<div class="arrival-empty">等待第一位宾客签到</div>';
   }
   return visibleParticipants
     .map(
@@ -760,7 +768,7 @@ function joinActionMarkup(event, participant) {
       <section class="join-ticket">
         ${avatarMarkup(participant)}
         <div class="ticket-copy">
-          <span>报名成功 · 已进入奖池</span>
+          <span>签到成功 · 已进入喜礼名单</span>
           <strong>${escapeHtml(participant.name)}</strong>
         </div>
         <span class="ticket-number">NO.${String(participant.id).padStart(4, "0")}</span>
@@ -770,30 +778,30 @@ function joinActionMarkup(event, participant) {
     return `
       <section class="join-closed">
         ${icon("door-closed")}
-        <h2>报名已经结束</h2>
-        <p>已入场的参与者仍保留抽奖资格。</p>
+        <h2>签到已经结束</h2>
+        <p>已签到的宾客仍保留喜礼抽取资格。</p>
       </section>`;
   }
   return `
     <section class="join-form-panel">
-      <h2>加入本场抽奖</h2>
-      <p>填写姓名后，你会立即进入候选名单。</p>
+      <h2>留下名字，接住喜气</h2>
+      <p>填写姓名后，你会立即进入本场喜礼名单。</p>
       <form id="join-form">
         <label class="join-name-field">
           <span>你的姓名</span>
           <input name="name" required maxlength="40" autocomplete="name" placeholder="请输入姓名">
         </label>
         <button class="button button-primary join-submit" type="submit">
-          ${icon("ticket-check")}<span>确认报名</span>
+          ${icon("ticket-check")}<span>确认签到</span>
         </button>
       </form>
       ${
         event.wechat_enabled
           ? `<div class="join-separator">或</div>
-             <a class="button wechat-button" href="/auth/wechat/start?event=${encodeURIComponent(event.slug)}">
-               ${icon("message-circle")}<span>使用微信昵称与头像报名</span>
+             <a class="button wechat-button" href="${appUrl(`/auth/wechat/start?event=${encodeURIComponent(event.slug)}`)}">
+               ${icon("message-circle")}<span>使用微信昵称与头像签到</span>
              </a>
-             <p class="privacy-note">${icon("shield-check")}昵称与头像仅用于本次活动</p>`
+             <p class="privacy-note">${icon("shield-check")}昵称与头像仅用于本场婚礼</p>`
           : ""
       }
     </section>`;
@@ -802,29 +810,29 @@ function joinActionMarkup(event, participant) {
 function renderJoinPage() {
   const event = state.currentEvent;
   const participant = state.currentParticipant;
-  document.title = `${event.title} · 扫码报名`;
+  document.title = `${event.title} · 宾客签到`;
   appRoot.innerHTML = `
     <main class="join-page">
       <header class="join-topbar">
-        <span class="join-brand"><span class="brand-mark" aria-hidden="true">幸</span><strong>幸运现场</strong></span>
-        <span class="live-status${event.registration_open ? "" : " is-closed"}" data-live-status>${event.registration_open ? "报名进行中" : "报名已关闭"}</span>
+        <span class="join-brand"><span class="brand-mark" aria-hidden="true">囍</span><strong>喜礼现场</strong></span>
+        <span class="live-status${event.registration_open ? "" : " is-closed"}" data-live-status>${event.registration_open ? "宾客签到中" : "签到已关闭"}</span>
       </header>
       <div class="join-layout">
         <section class="join-primary">
-          <div class="event-kicker">LIVE EVENT</div>
+          <div class="event-kicker">WELCOME TO OUR WEDDING</div>
           <h1>${escapeHtml(event.title)}</h1>
-          <p class="join-summary"><strong data-arrival-count>${event.participant_count}</strong> 位参与者已到场</p>
+          <p class="join-summary"><strong data-arrival-count>${event.participant_count}</strong> 位亲友已签到</p>
           <div id="join-action">${joinActionMarkup(event, participant)}</div>
         </section>
         <aside class="arrivals-panel">
           <header class="arrivals-head">
-            <div><p>ARRIVALS</p><h2>正在入场</h2></div>
+            <div><p>GUEST BOOK</p><h2>亲友签到</h2></div>
             <strong class="arrival-count" data-arrival-count>${event.participant_count}</strong>
           </header>
           <div id="arrival-grid" class="arrival-grid">${arrivalGridMarkup(event.participants)}</div>
         </aside>
       </div>
-      <footer class="join-footer">${escapeHtml(event.slug).toUpperCase()} · LUCKY LIVE</footer>
+      <footer class="join-footer">${escapeHtml(event.slug).toUpperCase()} · WEDDING LOTTERY</footer>
     </main>`;
   bindAvatarFallbacks();
   refreshIcons();
@@ -842,7 +850,7 @@ function renderJoinPage() {
       });
       state.currentEvent = await api(`/api/events/${encodeURIComponent(event.slug)}`);
       renderJoinPage();
-      showToast("报名成功，已进入奖池");
+      showToast("签到成功，已进入喜礼名单");
     } catch (error) {
       showToast(error.message, "error");
       setButtonBusy(button, false);
@@ -862,7 +870,7 @@ function updateJoinSnapshot(snapshot) {
   });
   const statusElement = document.querySelector("[data-live-status]");
   if (statusElement) {
-    statusElement.textContent = snapshot.registration_open ? "报名进行中" : "报名已关闭";
+    statusElement.textContent = snapshot.registration_open ? "宾客签到中" : "签到已关闭";
     statusElement.classList.toggle("is-closed", !snapshot.registration_open);
   }
   const grid = document.querySelector("#arrival-grid");
@@ -875,7 +883,7 @@ function updateJoinSnapshot(snapshot) {
 async function bootJoin(slug) {
   closeEventSource();
   document.body.className = "join-mode";
-  appRoot.innerHTML = `<main class="boot-screen"><div class="brand-mark">幸</div><p>报名页面正在载入</p></main>`;
+  appRoot.innerHTML = `<main class="boot-screen"><div class="brand-mark">囍</div><p>婚礼签到页正在载入</p></main>`;
   try {
     [state.currentEvent, state.currentParticipant] = await Promise.all([
       api(`/api/events/${encodeURIComponent(slug)}`),
@@ -884,14 +892,14 @@ async function bootJoin(slug) {
     renderJoinPage();
     const query = new URLSearchParams(location.search);
     if (query.get("wechat_error")) showToast(query.get("wechat_error"), "error");
-    if (query.get("joined") === "wechat") showToast("微信资料已确认，报名成功");
+    if (query.get("joined") === "wechat") showToast("微信资料已确认，签到成功");
     openEventStream(slug, updateJoinSnapshot);
   } catch (error) {
-    document.title = "活动不存在 · 幸运现场";
+    document.title = "婚礼不存在 · 喜礼现场";
     appRoot.innerHTML = `
       <main class="boot-screen">
         <div class="brand-mark">!</div>
-        <h1>没有找到这场活动</h1>
+        <h1>没有找到这场婚礼</h1>
         <p>${escapeHtml(error.message)}</p>
       </main>`;
   }
@@ -940,7 +948,7 @@ function pendingStageMarkup(event, round) {
   const eligible = event.participants.filter((participant) => !winnerIds.has(participant.id));
   const preview = eligible.length
     ? eligible[round.id % eligible.length]
-    : { id: 0, name: "等待参与者", avatar_url: null };
+    : { id: 0, name: "等待宾客", avatar_url: null };
   const firstPending = event.rounds.find((item) => item.status === "pending");
   const inSequence = firstPending?.id === round.id;
   const shortage = Math.max(0, round.winner_count - eligible.length);
@@ -978,7 +986,7 @@ function resultStageMarkup(event, round) {
     .map(
       (winner, index) => `
         <article class="winner-card" style="animation-delay:${index * 90}ms">
-          <span class="winner-position">WINNER ${String(index + 1).padStart(2, "0")}</span>
+          <span class="winner-position">LUCKY GUEST ${String(index + 1).padStart(2, "0")}</span>
           ${avatarMarkup(winner)}
           <strong>${escapeHtml(winner.name)}</strong>
         </article>`,
@@ -986,7 +994,7 @@ function resultStageMarkup(event, round) {
     .join("");
   return `
     <section class="result-stage">
-      <p class="stage-kicker">WINNERS</p>
+      <p class="stage-kicker">LUCKY GUESTS</p>
       <h1 class="stage-prize">${escapeHtml(round.name)}</h1>
       <p class="result-prize-name">${escapeHtml(round.prize)}</p>
       <div class="winner-grid${round.winners.length === 1 ? " is-solo" : ""}">${winnerCards}</div>
@@ -1005,7 +1013,7 @@ function renderDrawPage() {
   chooseDrawRound();
   const round = event.rounds.find((item) => item.id === state.selectedRoundId);
   document.body.className = "draw-mode";
-  document.title = `${event.title} · 抽奖大屏`;
+  document.title = `${event.title} · 喜礼大屏`;
 
   if (!round) {
     appRoot.innerHTML = `
@@ -1019,10 +1027,10 @@ function renderDrawPage() {
   appRoot.innerHTML = `
     <main class="draw-page">
       <header class="draw-topbar">
-        <div class="draw-brand"><span class="brand-mark" aria-hidden="true">幸</span><strong>幸运现场</strong></div>
+        <div class="draw-brand"><span class="brand-mark" aria-hidden="true">囍</span><strong>喜礼现场</strong></div>
         <span class="draw-event-title">${escapeHtml(event.title)}</span>
         <div class="draw-top-actions">
-          <span class="draw-count"><span>现场参与</span><strong data-draw-count>${event.participant_count}</strong></span>
+          <span class="draw-count"><span>签到宾客</span><strong data-draw-count>${event.participant_count}</strong></span>
           <button id="fullscreen-button" class="draw-icon-button" type="button" title="全屏" aria-label="切换全屏">${icon("maximize")}</button>
         </div>
       </header>
@@ -1098,7 +1106,7 @@ function launchConfetti() {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const layer = document.createElement("div");
   layer.className = "confetti-layer";
-  const colors = ["#df432d", "#e7bd70", "#ffffff", "#147d70"];
+  const colors = ["#a53a3f", "#d7b56d", "#fffaf7", "#55705f"];
   for (let index = 0; index < 90; index += 1) {
     const piece = document.createElement("i");
     piece.className = "confetti-piece";
@@ -1145,7 +1153,7 @@ async function startDrawAnimation(round, button) {
 async function bootDraw(slug) {
   closeEventSource();
   document.body.className = "draw-mode";
-  appRoot.innerHTML = `<main class="boot-screen"><div class="brand-mark">奖</div><p>抽奖大屏正在载入</p></main>`;
+  appRoot.innerHTML = `<main class="boot-screen"><div class="brand-mark">囍</div><p>喜礼大屏正在载入</p></main>`;
   try {
     const [event, session] = await Promise.all([
       api(`/api/events/${encodeURIComponent(slug)}`),
@@ -1160,7 +1168,7 @@ async function bootDraw(slug) {
       if (!state.drawing) renderDrawPage();
     });
   } catch (error) {
-    document.title = "无法进入大屏 · 幸运现场";
+    document.title = "无法进入大屏 · 喜礼现场";
     appRoot.innerHTML = `
       <main class="draw-page">
         <section class="draw-stage"><div class="draw-error">

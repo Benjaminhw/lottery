@@ -17,11 +17,18 @@ class Settings:
     wechat_app_id: str = ""
     wechat_app_secret: str = ""
     environment: str = "development"
+    base_path: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
         project_root = Path(__file__).resolve().parents[1]
         load_dotenv(project_root / ".env")
+        configured_base_path = os.getenv("BASE_PATH", "").strip()
+        base_path = (
+            f"/{configured_base_path.strip('/')}"
+            if configured_base_path.strip("/")
+            else ""
+        )
         return cls(
             database_path=Path(
                 os.getenv("DATABASE_PATH", project_root / "data" / "lottery.db")
@@ -33,4 +40,5 @@ class Settings:
             wechat_app_id=os.getenv("WECHAT_APP_ID", ""),
             wechat_app_secret=os.getenv("WECHAT_APP_SECRET", ""),
             environment=os.getenv("APP_ENV", "development").lower(),
+            base_path=base_path,
         )

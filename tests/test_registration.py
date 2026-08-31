@@ -52,4 +52,4 @@ def test_registration_lifecycle(tmp_path: Path) -> None:
             "/api/events/annual-party/participants", json={"name": "李四"}
         )
         assert rejected.status_code == 409
-        assert rejected.json()["detail"] == "报名已关闭"
+        assert rejected.json()["detail"] == "签到已关闭"

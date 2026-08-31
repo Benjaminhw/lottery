@@ -7,6 +7,7 @@ import re
 import secrets
 import sqlite3
 import unicodedata
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from io import BytesIO
@@ -19,8 +20,9 @@ import qrcode
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.responses import FileResponse, RedirectResponse, StreamingResponse
+from starlette.responses import HTMLResponse, RedirectResponse, StreamingResponse
 
 from app.config import Settings
 from app.db import connect, initialize, transaction
@@ -73,7 +75,7 @@ class EventInput(BaseModel):
     def clean_title(cls, value: str) -> str:
         cleaned = normalized_name(value)
         if not cleaned:
-            raise ValueError("活动名称不能为空")
+            raise ValueError("婚礼名称不能为空")
         return cleaned
 
     @field_validator("slug")
@@ -81,7 +83,7 @@ class EventInput(BaseModel):
     def valid_slug(cls, value: str) -> str:
         value = value.lower().strip()
         if not SLUG_PATTERN.fullmatch(value):
-            raise ValueError("活动代码只能使用小写字母、数字和连字符")
+            raise ValueError("婚礼代码只能使用小写字母、数字和连字符")
         return value
 
 
@@ -189,9 +191,97 @@ def load_event_snapshot(database_path: Path, slug: str) -> dict[str, object] | N
     }
 
 
+class EventStreamHub:
+    def __init__(self, database_path: Path, wechat_enabled: bool) -> None:
+        self.database_path = database_path
+        self.wechat_enabled = wechat_enabled
+        self._subscribers: dict[str, set[asyncio.Queue[str]]] = {}
+        self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._latest_messages: dict[str, str] = {}
+
+    async def subscribe(self, slug: str) -> AsyncIterator[str]:
+        queue: asyncio.Queue[str] = asyncio.Queue(maxsize=1)
+        subscribers = self._subscribers.setdefault(slug, set())
+        subscribers.add(queue)
+        latest_message = self._latest_messages.get(slug)
+        if latest_message is not None:
+            queue.put_nowait(latest_message)
+        task = self._tasks.get(slug)
+        if task is None or task.done():
+            self._tasks[slug] = asyncio.create_task(
+                self._poll_event(slug), name=f"event-stream-{slug}"
+            )
+
+        try:
+            while True:
+                try:
+                    message = await asyncio.wait_for(queue.get(), timeout=15)
+                except TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                yield message
+                if message.startswith("event: error"):
+                    return
+        finally:
+            subscribers = self._subscribers.get(slug)
+            if subscribers is not None:
+                subscribers.discard(queue)
+                if not subscribers:
+                    self._subscribers.pop(slug, None)
+                    self._latest_messages.pop(slug, None)
+                    task = self._tasks.pop(slug, None)
+                    if task is not None:
+                        task.cancel()
+
+    async def close(self) -> None:
+        tasks = list(self._tasks.values())
+        self._tasks.clear()
+        self._subscribers.clear()
+        self._latest_messages.clear()
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _poll_event(self, slug: str) -> None:
+        previous_payload: str | None = None
+        try:
+            while self._subscribers.get(slug):
+                snapshot = await asyncio.to_thread(load_event_snapshot, self.database_path, slug)
+                if snapshot is None:
+                    self._publish(slug, 'event: error\ndata: {"detail":"婚礼不存在"}\n\n')
+                    return
+                snapshot["wechat_enabled"] = self.wechat_enabled
+                payload = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))
+                if payload != previous_payload:
+                    self._publish(slug, f"event: snapshot\ndata: {payload}\n\n")
+                    previous_payload = payload
+                await asyncio.sleep(1)
+        finally:
+            current_task = asyncio.current_task()
+            if self._tasks.get(slug) is current_task:
+                self._tasks.pop(slug, None)
+
+    def _publish(self, slug: str, message: str) -> None:
+        self._latest_messages[slug] = message
+        for queue in tuple(self._subscribers.get(slug, ())):
+            if queue.full():
+                queue.get_nowait()
+            queue.put_nowait(message)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     app_settings = settings or Settings.from_env()
     static_directory = Path(__file__).resolve().parent / "static"
+    base_path = app_settings.base_path.rstrip("/")
+
+    def app_path(path: str) -> str:
+        return f"{base_path}{path}"
+
+    event_stream_hub = EventStreamHub(
+        app_settings.database_path,
+        bool(app_settings.wechat_app_id and app_settings.wechat_app_secret),
+    )
     if app_settings.environment == "production" and (
         app_settings.admin_password == "change-me"
         or app_settings.secret_key == "dev-only-change-this-secret"
@@ -201,11 +291,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         initialize(app_settings.database_path)
-        yield
+        try:
+            yield
+        finally:
+            await event_stream_hub.close()
 
-    app = FastAPI(title="幸运现场", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="喜礼现场", version="0.1.0", lifespan=lifespan)
     app.state.settings = app_settings
     app.state.wechat_profile_fetcher = fetch_wechat_profile
+    app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=5)
     app.add_middleware(
         SessionMiddleware,
         secret_key=app_settings.secret_key,
@@ -233,6 +327,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         if app_settings.cookie_secure:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        if request.url.path.startswith("/assets/"):
+            response.headers["Cache-Control"] = "public, max-age=3600"
         return response
 
     def require_admin(request: Request) -> None:
@@ -310,7 +406,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     ],
                 )
         except sqlite3.IntegrityError as error:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="活动代码已存在") from error
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="婚礼代码已存在") from error
         return {
             "slug": payload.slug,
             "title": payload.title,
@@ -328,17 +424,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 (int(payload.open), slug),
             )
             if cursor.rowcount == 0:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="活动不存在")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="婚礼不存在")
         return {"registration_open": payload.open}
 
     @app.get("/api/admin/events/{slug}")
     def get_admin_event(slug: str, _: None = Depends(require_admin)) -> dict[str, object]:
         snapshot = load_event_snapshot(app_settings.database_path, slug)
         if snapshot is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="活动不存在")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="婚礼不存在")
         snapshot["join_url"] = f"{app_settings.public_base_url}/e/{slug}"
         snapshot["draw_url"] = f"{app_settings.public_base_url}/draw/{slug}"
-        snapshot["qr_url"] = f"/api/events/{slug}/qr.png"
+        snapshot["qr_url"] = app_path(f"/api/events/{slug}/qr.png")
         return snapshot
 
     @app.put("/api/admin/events/{slug}/rounds")
@@ -348,7 +444,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with transaction(app_settings.database_path) as connection:
             event = connection.execute("SELECT id FROM events WHERE slug = ?", (slug,)).fetchone()
             if event is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="活动不存在")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="婚礼不存在")
             has_results = connection.execute(
                 "SELECT 1 FROM winners WHERE event_id = ? LIMIT 1", (event["id"],)
             ).fetchone()
@@ -380,9 +476,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "SELECT id, registration_open FROM events WHERE slug = ?", (slug,)
             ).fetchone()
             if event is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="活动不存在")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="婚礼不存在")
             if not event["registration_open"]:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="报名已关闭")
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="签到已关闭")
             try:
                 cursor = connection.execute(
                     """
@@ -393,7 +489,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
             except sqlite3.IntegrityError as error:
                 raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT, detail="该姓名已经报名"
+                    status_code=status.HTTP_409_CONFLICT, detail="该姓名已经签到"
                 ) from error
         participant_id = cursor.lastrowid
         assert participant_id is not None
@@ -407,7 +503,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with transaction(app_settings.database_path) as connection:
             event = connection.execute("SELECT id FROM events WHERE slug = ?", (slug,)).fetchone()
             if event is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="活动不存在")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="婚礼不存在")
             winner = connection.execute(
                 "SELECT 1 FROM winners WHERE event_id = ? AND participant_id = ?",
                 (event["id"], participant_id),
@@ -419,14 +515,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 (participant_id, event["id"]),
             )
             if cursor.rowcount == 0:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="参与者不存在")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="宾客不存在")
         return {"deleted": True}
 
     @app.get("/api/events/{slug}")
     def get_public_event(slug: str) -> dict[str, object]:
         snapshot = load_event_snapshot(app_settings.database_path, slug)
         if snapshot is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="活动不存在")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="婚礼不存在")
         snapshot["wechat_enabled"] = bool(
             app_settings.wechat_app_id and app_settings.wechat_app_secret
         )
@@ -461,7 +557,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with connect(app_settings.database_path) as connection:
             event = connection.execute("SELECT 1 FROM events WHERE slug = ?", (slug,)).fetchone()
         if event is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="活动不存在")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="婚礼不存在")
 
         qr = qrcode.QRCode(
             version=None,
@@ -471,7 +567,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         qr.add_data(f"{app_settings.public_base_url}/e/{slug}")
         qr.make(fit=True)
-        image = qr.make_image(fill_color="#171612", back_color="#ffffff")
+        image = qr.make_image(fill_color="#281d1d", back_color="#fffafa")
         output = BytesIO()
         image.save(output, format="PNG")
         return Response(
@@ -481,41 +577,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.get("/api/events/{slug}/stream")
-    async def event_stream(slug: str, request: Request) -> StreamingResponse:
-        async def updates():
-            previous_fingerprint: tuple[object, ...] | None = None
-            keepalive_ticks = 0
-            while not await request.is_disconnected():
-                snapshot = load_event_snapshot(app_settings.database_path, slug)
-                if snapshot is None:
-                    yield 'event: error\ndata: {"detail":"活动不存在"}\n\n'
-                    return
-                snapshot["wechat_enabled"] = bool(
-                    app_settings.wechat_app_id and app_settings.wechat_app_secret
-                )
-                rounds = snapshot["rounds"]
-                assert isinstance(rounds, list)
-                fingerprint = (
-                    snapshot["participant_count"],
-                    snapshot["registration_open"],
-                    tuple(
-                        (item["id"], item["status"], len(item["winners"]))
-                        for item in rounds
-                    ),
-                )
-                if fingerprint != previous_fingerprint:
-                    payload = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))
-                    yield f"event: snapshot\ndata: {payload}\n\n"
-                    previous_fingerprint = fingerprint
-                    keepalive_ticks = 0
-                elif keepalive_ticks >= 14:
-                    yield ": keepalive\n\n"
-                    keepalive_ticks = 0
-                await asyncio.sleep(1)
-                keepalive_ticks += 1
-
+    async def event_stream(slug: str) -> StreamingResponse:
         return StreamingResponse(
-            updates(),
+            event_stream_hub.subscribe(slug),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -532,9 +596,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "SELECT registration_open FROM events WHERE slug = ?", (event,)
             ).fetchone()
         if event_row is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="活动不存在")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="婚礼不存在")
         if not event_row["registration_open"]:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="报名已关闭")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="签到已关闭")
 
         state_token = secrets.token_urlsafe(24)
         request.session["wechat_oauth"] = {"state": state_token, "event": event}
@@ -546,7 +610,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def wechat_error_redirect(slug: str, message: str) -> RedirectResponse:
         query = urlencode({"wechat_error": message})
-        return RedirectResponse(f"/e/{slug}?{query}", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(
+            app_path(f"/e/{slug}?{query}"), status_code=status.HTTP_303_SEE_OTHER
+        )
 
     @app.get("/auth/wechat/callback")
     async def wechat_oauth_callback(
@@ -564,14 +630,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 app_settings.wechat_app_id, app_settings.wechat_app_secret, code
             )
         except (WechatOAuthError, httpx.HTTPError, ValueError):
-            return wechat_error_redirect(slug, "微信授权失败，请改用姓名报名")
+            return wechat_error_redirect(slug, "微信授权失败，请改用姓名签到")
 
         with transaction(app_settings.database_path) as connection:
             event_row = connection.execute(
                 "SELECT id, registration_open FROM events WHERE slug = ?", (slug,)
             ).fetchone()
             if event_row is None:
-                return wechat_error_redirect(slug, "活动不存在")
+                return wechat_error_redirect(slug, "婚礼不存在")
             existing = connection.execute(
                 "SELECT id FROM participants WHERE event_id = ? AND wechat_openid = ?",
                 (event_row["id"], profile.openid),
@@ -580,7 +646,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 participant_id = existing["id"]
             else:
                 if not event_row["registration_open"]:
-                    return wechat_error_redirect(slug, "报名已关闭")
+                    return wechat_error_redirect(slug, "签到已关闭")
                 base_name = normalized_name(profile.nickname)[:40] or "微信用户"
                 display_name = base_name
                 suffix_index = 2
@@ -610,7 +676,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 assert participant_id is not None
 
         remember_participant(request, slug, participant_id)
-        return RedirectResponse(f"/e/{slug}?joined=wechat", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(
+            app_path(f"/e/{slug}?joined=wechat"), status_code=status.HTTP_303_SEE_OTHER
+        )
 
     def winner_payload(connection: sqlite3.Connection, round_id: int) -> list[dict[str, object]]:
         rows = connection.execute(
@@ -713,7 +781,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with transaction(app_settings.database_path) as connection:
             event = connection.execute("SELECT id FROM events WHERE slug = ?", (slug,)).fetchone()
             if event is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="活动不存在")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="婚礼不存在")
             connection.execute("DELETE FROM winners WHERE event_id = ?", (event["id"],))
             connection.execute(
                 "UPDATE rounds SET status = 'pending', drawn_at = NULL WHERE event_id = ?",
@@ -722,9 +790,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"reset": True}
 
     app.mount("/assets", StaticFiles(directory=static_directory), name="assets")
+    page_content = (static_directory / "index.html").read_text(encoding="utf-8").replace(
+        "__BASE_PATH__", base_path
+    )
 
-    def application_page() -> FileResponse:
-        return FileResponse(static_directory / "index.html")
+    def application_page() -> HTMLResponse:
+        return HTMLResponse(page_content)
 
     app.add_api_route("/", application_page, include_in_schema=False)
     app.add_api_route("/admin", application_page, include_in_schema=False)

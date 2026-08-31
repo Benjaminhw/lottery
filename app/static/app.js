@@ -762,6 +762,20 @@ function arrivalGridMarkup(participants) {
     .join("");
 }
 
+function wechatOAuthUrl(slug) {
+  return appUrl(`/auth/wechat/start?event=${encodeURIComponent(slug)}`);
+}
+
+function shouldStartWechatOAuth(event, participant, query) {
+  return (
+    !participant &&
+    event.registration_open &&
+    event.wechat_enabled &&
+    /MicroMessenger/i.test(navigator.userAgent) &&
+    !query.has("wechat_error")
+  );
+}
+
 function joinActionMarkup(event, participant) {
   if (participant) {
     return `
@@ -798,7 +812,7 @@ function joinActionMarkup(event, participant) {
       ${
         event.wechat_enabled
           ? `<div class="join-separator">或</div>
-             <a class="button wechat-button" href="${appUrl(`/auth/wechat/start?event=${encodeURIComponent(event.slug)}`)}">
+             <a class="button wechat-button" href="${wechatOAuthUrl(event.slug)}">
                ${icon("message-circle")}<span>使用微信昵称与头像签到</span>
              </a>
              <p class="privacy-note">${icon("shield-check")}昵称与头像仅用于本场婚礼</p>`
@@ -889,8 +903,14 @@ async function bootJoin(slug) {
       api(`/api/events/${encodeURIComponent(slug)}`),
       api(`/api/events/${encodeURIComponent(slug)}/me`),
     ]);
-    renderJoinPage();
     const query = new URLSearchParams(location.search);
+    if (shouldStartWechatOAuth(state.currentEvent, state.currentParticipant, query)) {
+      document.title = `${state.currentEvent.title} · 微信签到`;
+      appRoot.innerHTML = `<main class="boot-screen"><div class="brand-mark">囍</div><p>正在连接微信资料</p></main>`;
+      location.replace(wechatOAuthUrl(slug));
+      return;
+    }
+    renderJoinPage();
     if (query.get("wechat_error")) showToast(query.get("wechat_error"), "error");
     if (query.get("joined") === "wechat") showToast("微信资料已确认，签到成功");
     openEventStream(slug, updateJoinSnapshot);

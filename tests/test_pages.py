@@ -29,6 +29,8 @@ def test_application_pages_and_assets_are_served(tmp_path: Path) -> None:
         assert "startDrawAnimation" in javascript.text
         assert "确认签到" in javascript.text
         assert "幸福锦鲤" in javascript.text
+        assert "MicroMessenger" in javascript.text
+        assert "location.replace(wechatOAuthUrl(slug))" in javascript.text
         assert javascript.headers["content-encoding"] == "gzip"
         assert javascript.headers["cache-control"] == "public, max-age=3600"
         assert javascript.headers["x-content-type-options"] == "nosniff"
@@ -50,7 +52,7 @@ def test_page_assets_support_reverse_proxy_base_path(tmp_path: Path) -> None:
     assert page.status_code == 200
     assert 'content="/wedding"' in page.text
     assert 'href="/wedding/assets/styles.css"' in page.text
-    assert 'src="/wedding/assets/app.js"' in page.text
+    assert 'src="/wedding/assets/app.js?v=wechat-auto"' in page.text
 
 
 def test_production_rejects_default_secrets(tmp_path: Path) -> None:
